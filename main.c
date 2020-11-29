@@ -5,6 +5,18 @@
 #include <time.h>
 #include <pthread.h>
 
+static unsigned long long g_seed;
+
+static inline void fast_srand(int seed)
+{
+    g_seed = seed;
+}
+
+unsigned long long fast_rand(void)
+{
+    g_seed = (214013ull * g_seed + 2531011ull);
+    return (g_seed >> 16ull) & 0x7FFFull;
+}
 typedef struct{
     int roundsPerThread;
     int successCounter;
@@ -13,10 +25,9 @@ typedef struct{
 
 void shuffle(int* arr, int N)
 {
-    srand(time(NULL));
     for (int i = N - 1; i >= 1; i--)
     {
-        int j = rand() % (i + 1);
+        int j = fast_rand() % (i + 1);
         int tmp = arr[j];
         arr[j] = arr[i];
         arr[i] = tmp;
@@ -34,12 +45,12 @@ void* threadFunc(void* data){
         if (deckCard -> cardDeck[0]%13 == deckCard -> cardDeck[1]%13){
             ++(deckCard -> successCounter);
         }
-        printf("%d\n", i);
     }
     return NULL;
 }
 
 int main(int argc, char* argv[]){
+    fast_srand(time(NULL));
     int threadNumber = 0;
     if (argc == 2){
         for (int i = 0; argv[1][i] > 0; ++i) {
@@ -53,26 +64,35 @@ int main(int argc, char* argv[]){
     int rounds;
     printf("enter the number of rounds:");
     scanf("%d", &rounds);
+    struct timespec start, finish;
+    double elapsed;
+    clock_gettime(CLOCK_MONOTONIC, &start);
     int roundsPerThread = rounds / threadNumber;
-    printf("%d\n", roundsPerThread);
     pthread_t* threads = (pthread_t*) malloc(threadNumber * sizeof(pthread_t));
     deckCardData* data = (deckCardData*) malloc(threadNumber * sizeof(deckCardData));
-    long double start = clock();
     for (int i = 0; i < threadNumber; ++i){
         data[i].roundsPerThread = roundsPerThread;
-        pthread_create(&(threads[i]), NULL, threadFunc, (void*) &data[i]);
+        if (pthread_create(&(threads[i]), NULL, threadFunc, (void*) &data[i])){
+            printf("Error creating thread!\n");
+            return -1;
+        }
     }
     for (int i = 0; i < threadNumber; ++i){
-        pthread_join(threads[i], NULL);
+        if (pthread_join(threads[i], NULL)) {
+            printf("Error executing thread!\n");
+            return -1;
+        }
     }
-    long double end = clock();
+    free(threads);
     int successSumCounter = 0;
     for (int i = 0; i < threadNumber; ++i){
         successSumCounter += data[i].successCounter;
     }
-
-    printf("%f\n", (double) successSumCounter / rounds);
-    printf("Execution time %Lf ms\n", (end - start) / 1000.0);
+    clock_gettime(CLOCK_MONOTONIC, &finish);
+    printf("credibility of success is %f\n", (double) successSumCounter / rounds);
+    elapsed = (finish.tv_sec - start.tv_sec);
+    elapsed += (finish.tv_nsec - start.tv_nsec) / 1000000000.0;
+    printf("execution time is %lf s\n", elapsed);
     free(data);
     return 0;
 }
